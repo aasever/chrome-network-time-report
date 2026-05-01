@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network Time Report</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">
+      ⬡ Network Time Report
+      <span id="recordingStatus">RECORDING</span>
+    </div>
+    <button class="btn btn-record recording" id="btnRecord">Pause</button>
+    <button class="btn btn-clear" id="btnClear">Clear</button>
+    <button class="btn btn-export" id="btnExport">Export CSV</button>
+    <button class="btn btn-tab" id="btnTab">⤢ Full Tab</button>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <div class="filter-input-wrap">
+      <input
+        type="text"
+        class="filter-input"
+        id="filterInput"
+        placeholder='Filter… e.g. api AND NOT hostname:cdn.example.com'
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="filter-clear-btn" id="filterClearBtn" title="Clear filter">✕</button>
+    </div>
+    <span class="filter-hint" id="helpBtn">? syntax</span>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <span class="stat">
+      Showing <span class="stat-val" id="statShowing">0</span>
+      of <span class="stat-val" id="statTotal">0</span> requests
+    </span>
+    <span class="stat-sep">·</span>
+    <span class="stat">
+      Total response time <span class="stat-val" id="statTotalTime">0.000s</span>
+    </span>
+    <span class="stat-sep">·</span>
+    <span class="stat">
+      Avg <span class="stat-val" id="statAvgTime">0.000s</span>
+    </span>
+    <span class="stat-sep">·</span>
+    <span class="stat">
+      Total transferred <span class="stat-val" id="statTotalSize">0 B</span>
+    </span>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="main">
+    <div class="tab-bar">
+      <div class="tab active" data-tab="requests">Requests</div>
+      <div class="tab" data-tab="summary">Summary</div>
+    </div>
+
+    <!-- Requests table -->
+    <div class="table-wrapper visible" id="requestsView">
+      <table id="requestsTable">
+        <thead>
+          <tr>
+            <th class="col-time sorted" data-col="responseTime">
+              Time (s)<span class="sort-icon">▼</span>
+            </th>
+            <th class="col-status" data-col="statusCode">Status</th>
+            <th class="col-method" data-col="method">Method</th>
+            <th class="col-host" data-col="hostname">Hostname</th>
+            <th class="col-uri" data-col="uri">URI</th>
+            <th class="col-req" data-col="requestSize">Req Size</th>
+            <th class="col-res" data-col="responseSize">Res Size</th>
+          </tr>
+        </thead>
+        <tbody id="requestsBody">
+        </tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none">
+        <div class="empty-state-icon">📡</div>
+        <div>No requests captured yet.</div>
+        <div style="font-size:11px">Browse any page to start recording network traffic.</div>
+      </div>
+    </div>
+
+    <!-- Summary view -->
+    <div class="summary-wrapper" id="summaryView">
+      <div class="summary-section">
+        <div class="summary-section-title">Top 10 Hosts — Cumulative Response Time</div>
+        <table class="top-hosts-table" id="summaryTable">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th>Hostname</th>
+              <th style="width:90px;text-align:right">Cumulative</th>
+              <th style="width:70px;text-align:right">Requests</th>
+              <th style="width:80px;text-align:right">Avg Time</th>
+              <th class="bar-cell"></th>
+            </tr>
+          </thead>
+          <tbody id="summaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Help overlay -->
+<div class="help-overlay" id="helpOverlay">
+  <div class="help-box">
+    <button class="help-close" id="helpClose">✕</button>
+    <h3>Filter Syntax</h3>
+
+    <h4>Field Filters</h4>
+    <div class="help-row">
+      <span class="help-example">hostname:api.example.com</span>
+      <span class="help-desc">Exact or partial hostname match</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">host:cdn</span>
+      <span class="help-desc">Shorthand for hostname</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">uri:/api/v2</span>
+      <span class="help-desc">URI path/query match</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">status:404</span>
+      <span class="help-desc">HTTP status code (exact or prefix e.g. 4)</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">method:POST</span>
+      <span class="help-desc">HTTP method (GET, POST, PUT…)</span>
+    </div>
+
+    <h4>Boolean Operators</h4>
+    <div class="help-row">
+      <span class="help-example">api AND NOT cdn</span>
+      <span class="help-desc">Must match "api", exclude "cdn"</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">google.com OR facebook.com</span>
+      <span class="help-desc">Match either hostname</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">(status:4 OR status:5) AND uri:/auth</span>
+      <span class="help-desc">Grouping with parentheses</span>
+    </div>
+    <div class="help-row">
+      <span class="help-example">NOT method:GET</span>
+      <span class="help-desc">Exclude all GET requests</span>
+    </div>
+
+    <h4>Free Text</h4>
+    <div class="help-row">
+      <span class="help-example">analytics</span>
+      <span class="help-desc">Matches hostname, URI, method, or status</span>
+    </div>
+
+    <h4>Operators are case-insensitive</h4>
+    <div class="help-row">
+      <span class="help-example">api and not cdn</span>
+      <span class="help-desc">Same as AND / NOT</span>
+    </div>
+  </div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

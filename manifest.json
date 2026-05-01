@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Network Time Report",
+  "version": "1.0.0",
+  "description": "Monitor network requests and export detailed timing reports with filtering.",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Network Time Report"
+  }
+}

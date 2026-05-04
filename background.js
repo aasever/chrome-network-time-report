@@ -127,11 +127,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'GET_REQUESTS':
         sendResponse({ requests, isRecording });
         break;
-      case 'CLEAR_REQUESTS':
-        requests = [];
+      case 'CLEAR_REQUESTS': {
+        if (msg.tabId !== undefined && msg.tabId !== null) {
+          requests = requests.filter((r) => r.tabId !== msg.tabId);
+        } else {
+          requests = [];
+        }
         await saveToStorage();
         sendResponse({ ok: true });
         break;
+      }
       case 'SET_RECORDING':
         isRecording = msg.value;
         await chrome.storage.local.set({ isRecording });

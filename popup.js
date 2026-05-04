@@ -158,6 +158,17 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Viewer tab (action popup = active tab; full-tab page can pin via ?forTab=) ─
+
+const _urlParams = new URLSearchParams(window.location.search);
+const _forTabParam = _urlParams.get('forTab');
+let viewerTabIdPinned = null;
+if (_forTabParam != null && _forTabParam !== '') {
+  const n = Number(_forTabParam);
+  if (Number.isInteger(n) && n >= 0) viewerTabIdPinned = n;
+}
+let lastViewerTabId;
+
 // ── State ───────────────────────────────────────────────────────────────────
 
 let allRequests = [];
@@ -356,7 +367,11 @@ btnRecord.addEventListener('click', () => {
 });
 
 btnClear.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'CLEAR_REQUESTS' }, () => {
+  const msg =
+    lastViewerTabId !== undefined
+      ? { type: 'CLEAR_REQUESTS', tabId: lastViewerTabId }
+      : { type: 'CLEAR_REQUESTS' };
+  chrome.runtime.sendMessage(msg, () => {
     allRequests = [];
     refresh();
   });
@@ -365,7 +380,12 @@ btnClear.addEventListener('click', () => {
 btnExport.addEventListener('click', exportCSV);
 
 btnTab.addEventListener('click', () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const id = tabs[0]?.id;
+    const q =
+      id !== undefined ? `?forTab=${encodeURIComponent(String(id))}` : '';
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') + q });
+  });
 });
 
 // ── Help ─────────────────────────────────────────────────────────────────────
@@ -414,12 +434,22 @@ function exportCSV() {
 function loadData() {
   chrome.runtime.sendMessage({ type: 'GET_REQUESTS' }, (res) => {
     if (chrome.runtime.lastError) return;
-    allRequests = res.requests || [];
-    isRecording = res.isRecording !== false;
-    btnRecord.textContent = isRecording ? 'Pause' : 'Record';
-    btnRecord.classList.toggle('recording', isRecording);
-    recordStatus.textContent = isRecording ? 'RECORDING' : 'PAUSED';
-    refresh();
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) return;
+      const tabId =
+        viewerTabIdPinned !== null ? viewerTabIdPinned : tabs[0]?.id;
+      lastViewerTabId = tabId;
+      const raw = res.requests || [];
+      allRequests =
+        tabId === undefined
+          ? []
+          : raw.filter((r) => r.tabId === tabId);
+      isRecording = res.isRecording !== false;
+      btnRecord.textContent = isRecording ? 'Pause' : 'Record';
+      btnRecord.classList.toggle('recording', isRecording);
+      recordStatus.textContent = isRecording ? 'RECORDING' : 'PAUSED';
+      refresh();
+    });
   });
 }
 

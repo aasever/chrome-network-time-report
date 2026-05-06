@@ -3,6 +3,9 @@
   "name": "Network Time Report",
   "version": "1.0.0",
   "description": "Monitor network requests and export detailed timing reports with filtering.",
+  "icons": {
+      "128": "icon128.png"
+    },
   "permissions": [
     "webRequest",
     "storage",

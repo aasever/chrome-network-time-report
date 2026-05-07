@@ -167,6 +167,9 @@ if (_forTabParam != null && _forTabParam !== '') {
   const n = Number(_forTabParam);
   if (Number.isInteger(n) && n >= 0) viewerTabIdPinned = n;
 }
+if (viewerTabIdPinned !== null) {
+  document.documentElement.classList.add('fullscreen-tab');
+}
 let lastViewerTabId;
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -174,9 +177,11 @@ let lastViewerTabId;
 let allRequests = [];
 let filteredRequests = [];
 let isRecording = true;
+let captureHeaders = false;
 let sortCol = 'responseTime';
 let sortDir = 'desc';
 let activeTab = 'requests';
+let expandedRequestId = null;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
@@ -184,6 +189,7 @@ const btnRecord     = document.getElementById('btnRecord');
 const btnClear      = document.getElementById('btnClear');
 const btnExport     = document.getElementById('btnExport');
 const btnTab        = document.getElementById('btnTab');
+const captureHeadersToggle = document.getElementById('captureHeadersToggle');
 const filterInput   = document.getElementById('filterInput');
 const filterClearBtn= document.getElementById('filterClearBtn');
 const helpBtn       = document.getElementById('helpBtn');
@@ -222,10 +228,40 @@ function renderTable() {
   }
   emptyState.style.display = 'none';
 
+  const renderHeaders = (hdrs) => {
+    if (!hdrs || hdrs.length === 0) return `<div class="headers-empty">No headers captured.</div>`;
+    const items = hdrs
+      .map((h) => {
+        const name = esc(h.name);
+        const value = esc(h.value ?? '');
+        return `<div class="hdr"><span class="hdr-k">${name}</span><span class="hdr-v">${value}</span></div>`;
+      })
+      .join('');
+    return `<div class="headers-list">${items}</div>`;
+  };
+
   const rows = sorted.map((r) => {
     const tc = timeClass(r.responseTime);
     const sc = statusClass(r.statusCode);
-    return `<tr>
+    const isExpanded = expandedRequestId === r.id;
+    const details = isExpanded
+      ? `<tr class="details-row">
+          <td colspan="7">
+            <div class="details-wrap">
+              <div class="details-col">
+                <div class="details-title">Request headers</div>
+                ${captureHeaders ? renderHeaders(r.requestHeaders) : `<div class="headers-disabled">Enable “Headers” to capture.</div>`}
+              </div>
+              <div class="details-col">
+                <div class="details-title">Response headers</div>
+                ${captureHeaders ? renderHeaders(r.responseHeaders) : `<div class="headers-disabled">Enable “Headers” to capture.</div>`}
+              </div>
+            </div>
+          </td>
+        </tr>`
+      : '';
+
+    return `<tr class="request-row" data-id="${esc(r.id)}">
       <td class="col-time ${tc}">${fmtTime(r.responseTime)}</td>
       <td class="col-status ${sc}">${esc(r.statusCode || '—')}</td>
       <td class="col-method">${esc(r.method)}</td>
@@ -233,7 +269,7 @@ function renderTable() {
       <td class="col-uri" title="${esc(r.uri)}">${esc(r.uri)}</td>
       <td class="col-req">${fmtSize(r.requestSize)}</td>
       <td class="col-res">${r.responseSize < 0 ? 'N/A' : fmtSize(r.responseSize)}</td>
-    </tr>`;
+    </tr>${details}`;
   });
   requestsBody.innerHTML = rows.join('');
 }
@@ -379,6 +415,22 @@ btnClear.addEventListener('click', () => {
 
 btnExport.addEventListener('click', exportCSV);
 
+captureHeadersToggle?.addEventListener('change', () => {
+  const value = captureHeadersToggle.checked === true;
+  captureHeaders = value;
+  chrome.runtime.sendMessage({ type: 'SET_CAPTURE_HEADERS', value }, () => {
+    refresh();
+  });
+});
+
+requestsBody.addEventListener('click', (e) => {
+  const tr = e.target?.closest?.('tr.request-row');
+  if (!tr) return;
+  const id = tr.getAttribute('data-id');
+  expandedRequestId = expandedRequestId === id ? null : id;
+  renderTable();
+});
+
 btnTab.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const id = tabs[0]?.id;
@@ -407,7 +459,18 @@ function csvEscape(val) {
 }
 
 function exportCSV() {
-  const headers = ['Timestamp', 'Response Time (s)', 'Status', 'Method', 'Hostname', 'URI', 'Request Size (bytes)', 'Response Size (bytes)'];
+  const headers = [
+    'Timestamp',
+    'Response Time (s)',
+    'Status',
+    'Method',
+    'Hostname',
+    'URI',
+    'Request Size (bytes)',
+    'Response Size (bytes)',
+    'Request Headers (JSON)',
+    'Response Headers (JSON)',
+  ];
   const rows = filteredRequests.map((r) => [
     new Date(r.timestamp).toISOString(),
     r.responseTime.toFixed(6),
@@ -417,6 +480,8 @@ function exportCSV() {
     r.uri,
     r.requestSize,
     r.responseSize < 0 ? '' : r.responseSize,
+    r.requestHeaders && r.requestHeaders.length ? JSON.stringify(r.requestHeaders) : '',
+    r.responseHeaders && r.responseHeaders.length ? JSON.stringify(r.responseHeaders) : '',
   ]);
 
   const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
@@ -445,6 +510,8 @@ function loadData() {
           ? []
           : raw.filter((r) => r.tabId === tabId);
       isRecording = res.isRecording !== false;
+      captureHeaders = res.captureHeaders === true;
+      if (captureHeadersToggle) captureHeadersToggle.checked = captureHeaders;
       btnRecord.textContent = isRecording ? 'Pause' : 'Record';
       btnRecord.classList.toggle('recording', isRecording);
       recordStatus.textContent = isRecording ? 'RECORDING' : 'PAUSED';

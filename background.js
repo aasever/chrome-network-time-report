@@ -6,11 +6,17 @@ const pending = new Map();
 // Requests stored in memory; flushed to storage on each completion
 let requests = [];
 let isRecording = true;
+let captureHeaders = false;
 
 async function loadFromStorage() {
-  const data = await chrome.storage.local.get(['requests', 'isRecording']);
+  const data = await chrome.storage.local.get([
+    'requests',
+    'isRecording',
+    'captureHeaders',
+  ]);
   requests = data.requests || [];
   isRecording = data.isRecording !== false;
+  captureHeaders = data.captureHeaders === true;
 }
 
 async function saveToStorage() {
@@ -18,6 +24,19 @@ async function saveToStorage() {
 }
 
 loadFromStorage();
+
+function redactHeaders(headers) {
+  if (!headers || !Array.isArray(headers)) return [];
+  const blocked = new Set(['authorization', 'cookie', 'set-cookie']);
+  return headers
+    .filter((h) => h && typeof h.name === 'string')
+    .map((h) => {
+      const name = String(h.name);
+      const lname = name.toLowerCase();
+      if (blocked.has(lname)) return { name, value: '' };
+      return { name, value: h.value === undefined ? '' : String(h.value) };
+    });
+}
 
 // ── webRequest listeners ────────────────────────────────────────────────────
 
@@ -61,6 +80,17 @@ chrome.webRequest.onSendHeaders.addListener(
   ['requestHeaders']
 );
 
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!isRecording || !captureHeaders) return;
+    const entry = pending.get(details.requestId);
+    if (!entry) return;
+    entry.requestHeaders = redactHeaders(details.requestHeaders);
+  },
+  { urls: ['<all_urls>'] },
+  ['requestHeaders', 'extraHeaders']
+);
+
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     const entry = pending.get(details.requestId);
@@ -76,10 +106,14 @@ chrome.webRequest.onHeadersReceived.addListener(
         (h) => h.name.toLowerCase() === 'content-type'
       );
       if (ct) entry.contentType = ct.value.split(';')[0].trim();
+
+      if (captureHeaders) {
+        entry.responseHeaders = redactHeaders(details.responseHeaders);
+      }
     }
   },
   { urls: ['<all_urls>'] },
-  ['responseHeaders']
+  ['responseHeaders', 'extraHeaders']
 );
 
 chrome.webRequest.onCompleted.addListener(
@@ -103,6 +137,8 @@ chrome.webRequest.onCompleted.addListener(
       responseSize: entry.responseSize !== undefined ? entry.responseSize : -1,
       contentType: entry.contentType || '',
       tabId: details.tabId,
+      requestHeaders: entry.requestHeaders || [],
+      responseHeaders: entry.responseHeaders || [],
     };
 
     requests.push(record);
@@ -125,7 +161,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case 'GET_REQUESTS':
-        sendResponse({ requests, isRecording });
+        sendResponse({ requests, isRecording, captureHeaders });
         break;
       case 'CLEAR_REQUESTS': {
         if (msg.tabId !== undefined && msg.tabId !== null) {
@@ -141,6 +177,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         isRecording = msg.value;
         await chrome.storage.local.set({ isRecording });
         sendResponse({ ok: true });
+        break;
+      case 'SET_CAPTURE_HEADERS':
+        captureHeaders = msg.value === true;
+        await chrome.storage.local.set({ captureHeaders });
+        sendResponse({ ok: true, captureHeaders });
         break;
       default:
         sendResponse({ error: 'unknown message' });
